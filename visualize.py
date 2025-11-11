@@ -95,7 +95,7 @@ def plot_borda_ranking(borda_ranking, agg_ranking, title="Borda Color Coded by T
     for i, (item, score, color) in enumerate(zip(items, scores, colors)):
         y = len(items) - i - 1
         ax.add_patch(plt.Rectangle((0, y), 1, 1, color=color))
-        ax.text(0.5, y + 0.5, f"{item}: {score:.2f}",
+        ax.text(0.5, y + 0.5, f"{item}: {score:.2f}, True: {agg_ranking[item]:.2f}",
                 ha='center', va='center', fontsize=12, weight='bold',
                 color='black' if norm[i] < 0.6 else 'white')
 

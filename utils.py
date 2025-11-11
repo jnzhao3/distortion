@@ -1,4 +1,7 @@
-def compute_borda(comparisons):
+from itertools import count
+import numpy as np
+
+def compute_borda(comparisons, winner_only=False):
     """
     Compute the Borda count from a list of pairwise comparisons.
 
@@ -14,10 +17,14 @@ def compute_borda(comparisons):
     scores = defaultdict(int)
     items = set()
 
+    count_counts = defaultdict(int)
+
     # Collect all unique items
     for a, b in comparisons:
         items.add(a)
+        count_counts[a] += 1
         items.add(b)
+        count_counts[b] += 1
 
     n = len(items)
 
@@ -28,9 +35,26 @@ def compute_borda(comparisons):
 
     # Calculate Borda scores
     for item in items:
-        scores[item] = win_counts[item] * (n - 1) - (len(comparisons) - win_counts[item])
+        # scores[item] = win_counts[item] * (n - 1) - (len(comparisons) - win_counts[item])
+        scores[item] = win_counts[item] / (count_counts[item])  # Avoid division by zero
+
+    if winner_only:
+        max_item = max(scores, key=scores.get)
+        return {max_item: scores[max_item]}
 
     return dict(scores)
+
+def pop_winner(comparisons, winner):
+    """
+    Remove all comparisons involving the specified winner.
+
+    Args:
+        comparisons (list of tuples): Each tuple contains two elements (a, b) indicating that 'a' is preferred over 'b'.
+        winner: The item to be removed from comparisons.
+    Returns:
+        list of tuples: Updated list of comparisons with the winner removed.
+    """
+    return [comp for comp in comparisons if winner not in comp]
 
 def full_rank_aggregation(ranks):
     """
@@ -58,6 +82,18 @@ def full_rank_aggregation(ranks):
     # return aggregated_ranking
     aggregated_ranking = dict(scores)
     return aggregated_ranking
+
+def avg_candidate_utility(candidate, voters):
+    num_voters = len(voters)
+    return sum(voter.ut_func(candidate) for voter in voters) / num_voters
+
+def avg_society_utility(ranking, weights, voters):
+    C = len(ranking)
+    weights = np.array(weights)
+    weights = weights / np.sum(weights)  # Normalize weights
+
+    sorted_rank = sorted(ranking.keys(), key=lambda x: ranking.get(x), reverse=True)
+    return np.sum(avg_candidate_utility(sorted_rank[i], voters) * weights[i] for i in range(C))
 
 def create_polynomial(coefficients):
     """
