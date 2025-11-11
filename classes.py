@@ -1,3 +1,5 @@
+import numpy as np
+
 class Voter:
     def __init__(self):
         self.ut_func = lambda x: x
@@ -8,8 +10,11 @@ class Voter:
     def get_rank(self, candidates):
         if self.ut_func is None:
             raise ValueError("Utility function not set.")
-        utilities = {candidate: self.ut_func(candidate) for candidate in candidates}
-        ranked_candidates = sorted(utilities, key=utilities.get, reverse=True)
+        # utilities = {candidate: self.ut_func(candidate) for candidate in candidates}
+        utilities = np.apply_along_axis(self.ut_func, 0, candidates)
+        sorted_indices = np.argsort(-utilities)
+        ranked_candidates = [candidates[i] for i in sorted_indices]
+        # ranked_candidates = sorted(utilities, key=utilities.get, reverse=True)
         return ranked_candidates
 
     def get_preference(self, candidate_1, candidate_2):
