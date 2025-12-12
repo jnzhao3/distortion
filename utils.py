@@ -1,6 +1,18 @@
 from itertools import count
 import numpy as np
 
+def compute_expected_borda(candidates, voters, beta=1.0):
+
+    expected_scores = {candidate: 0.0 for candidate in candidates}
+
+    for candidate in candidates:
+        for candidate2 in candidates:
+            if candidate != candidate2:
+                for voter in voters:
+                    expected_scores[candidate] += 1 / (1 + np.exp(-beta * (voter.ut_func(candidate) - voter.ut_func(candidate2))))
+
+    return expected_scores
+
 def compute_borda(comparisons, winner_only=False):
     """
     Compute the Borda count from a list of pairwise comparisons.
