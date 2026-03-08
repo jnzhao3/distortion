@@ -1,7 +1,9 @@
 import numpy as np
 from scipy.optimize import minimize
+from scipy.special import expit
 
-def bt_neg_log_likelihood(r_free, winners, losers, n_items):
+
+def bt_neg_log_likelihood(r_free, winners, losers, n_items, beta=1.0):
     """
     r_free: parameters for items 0..n_items-2
     last item's reward is fixed to 0 for identifiability
@@ -9,14 +11,14 @@ def bt_neg_log_likelihood(r_free, winners, losers, n_items):
     """
     r = np.concatenate([r_free, [0.0]])  # fix last reward = 0
 
-    diff = r[winners] - r[losers]
+    diff = beta * (r[winners] - r[losers])
     
     # log sigma(diff) = -log(1 + exp(-diff))
     # use stable form:
     nll = np.sum(np.logaddexp(0.0, -diff))
     return nll
 
-def fit_bradley_terry(winners, losers, n_items):
+def fit_bradley_terry(winners, losers, n_items, beta=1.0):
     """
     winners[k] beat losers[k]
     """
@@ -25,7 +27,7 @@ def fit_bradley_terry(winners, losers, n_items):
     result = minimize(
         bt_neg_log_likelihood,
         x0,
-        args=(winners, losers, n_items),
+        args=(winners, losers, n_items, beta),
         method="L-BFGS-B"
     )
 
@@ -54,6 +56,32 @@ def borda_from_pairwise(winners, losers, n_items=None):
     ranking = np.argsort(-scores)  # descending
     return scores, ranking
 
+
+def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, beta=1.0):
+    
+    utilities = np.asarray(utilities)
+
+    V, C = utilities.shape
+
+    if voter_dist:
+        voter_dist = np.asarray(voter_dist)
+        assert voter_dist.shape[0] == utilities.shape[0]
+
+        
+    
+    P = np.zeros((C, C))
+
+    for u in utilities:
+        diffs = u[:, None] - u[None, :]
+        P += expit(beta * diffs)
+
+    P /= V
+
+    borda_scores = P.sum(axis=1)
+    ranking = np.argsort(-borda_scores)
+
+    return borda_scores, ranking
+
 def leaderboard_dist(ranking, true_ranking, avg_utils):
     ranking = np.asarray(ranking)
     true_ranking = np.asarray(true_ranking)
@@ -65,4 +93,5 @@ def leaderboard_dist(ranking, true_ranking, avg_utils):
     num_cumsum = np.cumsum(true_ranking_utils)
 
     ratio = np.max(num_cumsum / denom_cumsum)
-    return ratio
+    k = np.argmax(num_cumsum / denom_cumsum)
+    return ratio, k
