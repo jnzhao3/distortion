@@ -67,7 +67,7 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
         voter_dist = np.asarray(voter_dist)
         assert voter_dist.shape[0] == utilities.shape[0]
 
-        
+    
     
     P = np.zeros((C, C))
 
