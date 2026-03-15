@@ -67,7 +67,7 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
         voter_dist = np.asarray(voter_dist)
         assert voter_dist.shape[0] == utilities.shape[0]
 
-    
+    # TODO:
     
     P = np.zeros((C, C))
 
@@ -95,3 +95,28 @@ def leaderboard_dist(ranking, true_ranking, avg_utils):
     ratio = np.max(num_cumsum / denom_cumsum)
     k = np.argmax(num_cumsum / denom_cumsum)
     return ratio, k
+
+# KL(p_{dataset} || p_{fitted model}), where p denote distributions over pairwise comparisons
+def misspecification_error(winners, losers, r_hat, beta=1.0, eps=1e-12):
+    n_candidates = len(r_hat)
+    counts = np.zeros((n_candidates, n_candidates), dtype=np.float64)
+
+    for w, l in zip(winners, losers):
+        counts[w, l] += 1
+
+    total = counts + counts.T
+    mask = total > 0  # only pairs that were actually compared
+
+    empirical = np.zeros_like(counts, dtype=np.float64)
+    empirical[mask] = counts[mask] / total[mask]
+
+    modeled = 1.0 / (1.0 + np.exp(-beta * (r_hat[:, None] - r_hat[None, :])))
+
+    # avoid diagonal and duplicate counting
+    triu = np.triu(mask, k=1)
+
+    p = np.clip(empirical[triu], eps, 1 - eps)
+    q = np.clip(modeled[triu], eps, 1 - eps)
+
+    kl = p * np.log(p / q) + (1 - p) * np.log((1 - p) / (1 - q))
+    return kl.sum()
