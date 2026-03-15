@@ -34,50 +34,54 @@ def fit_bradley_terry(winners, losers, n_items, beta=1.0):
     r_hat = np.concatenate([result.x, [0.0]])
     return r_hat, result
 
-def borda_from_pairwise(winners, losers, n_items=None):
-    winners = np.asarray(winners)
-    losers = np.asarray(losers)
+# def borda_from_pairwise(winners, losers, n_items=None):
+#     winners = np.asarray(winners)
+#     losers = np.asarray(losers)
 
-    if n_items is None:
-        n_items = max(winners.max(), losers.max()) + 1
+#     if n_items is None:
+#         n_items = max(winners.max(), losers.max()) + 1
 
-    scores = np.zeros(n_items, dtype=int)
+#     scores = np.zeros(n_items, dtype=int)
 
-    for w in winners:
-        scores[w] += 1
+#     for w in winners:
+#         scores[w] += 1
 
-    denom = np.zeros(n_items, dtype=int)
-    for l in losers:
-        denom[l] += 1
+#     denom = np.zeros(n_items, dtype=int)
+#     for l in losers:
+#         denom[l] += 1
 
-    denom = denom + scores + 1e-6
-    scores = scores / denom
+#     denom = denom + scores + 1e-6
+#     scores = scores / denom
 
-    ranking = np.argsort(-scores)  # descending
-    return scores, ranking
+#     ranking = np.argsort(-scores)  # descending
+#     return scores, ranking
 
 
 def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, beta=1.0):
-    
     utilities = np.asarray(utilities)
-
     V, C = utilities.shape
 
-    if voter_dist:
-        voter_dist = np.asarray(voter_dist)
-        assert voter_dist.shape[0] == utilities.shape[0]
+    if voter_dist is None:
+        voter_dist = np.ones(V, dtype=float) / V
+    else:
+        voter_dist = np.asarray(voter_dist, dtype=float)
+        assert voter_dist.shape == (V,)
+        voter_dist = voter_dist / voter_dist.sum()
 
-    # TODO:
-    
-    P = np.zeros((C, C))
+    if cand_dist is None:
+        cand_dist = np.ones(C, dtype=float) / C
+    else:
+        cand_dist = np.asarray(cand_dist, dtype=float)
+        assert cand_dist.shape == (C,)
+        cand_dist = cand_dist / cand_dist.sum()
 
-    for u in utilities:
+    P = np.zeros((C, C), dtype=float)
+
+    for v, u in enumerate(utilities):
         diffs = u[:, None] - u[None, :]
-        P += expit(beta * diffs)
+        P += voter_dist[v] * expit(beta * diffs)
 
-    P /= V
-
-    borda_scores = P.sum(axis=1)
+    borda_scores = P @ cand_dist
     ranking = np.argsort(-borda_scores)
 
     return borda_scores, ranking
