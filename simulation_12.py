@@ -78,8 +78,8 @@ class SubgroupResult:
     key_vector: np.ndarray
     winners: np.ndarray
     losers: np.ndarray
-    r_hat: np.ndarray
-    misspecification_error: float
+    r_hat: np.ndarray | None
+    misspecification_error: float | None
 
 
 @dataclass
@@ -87,6 +87,7 @@ class SimulationResult:
     pop_utilities: np.ndarray
     absolute_subsection_sizes: np.ndarray
     misspec_errors: dict[int, float]
+    included_subgroup_indices: np.ndarray
     avg_utils: np.ndarray
     true_ranking: np.ndarray
     borda_scores: np.ndarray
@@ -287,20 +288,44 @@ class DistortionSimulation:
         cache_path = self._subgroup_cache_path(key_vector, language)
         if cache_path.exists():
             cached = np.load(cache_path)
+            r_hat = cached["r_hat"]
+            if r_hat.size == 0:
+                r_hat = None
+            misspecification_error = cached["misspecification_error"]
+            if misspecification_error.size == 0:
+                misspecification_error = None
+            else:
+                misspecification_error = float(misspecification_error[0])
             return SubgroupResult(
                 key_vector=cached["key_vector"],
                 winners=cached["winners"],
                 losers=cached["losers"],
-                r_hat=cached["r_hat"],
-                misspecification_error=float(cached["misspecification_error"]),
+                r_hat=r_hat,
+                misspecification_error=misspecification_error,
             )
 
         mask = self.filter_fast(key_vector, language=language)
         winners, losers = self.process(mask)
+        if len(winners) == 0:
+            result = SubgroupResult(
+                key_vector=np.asarray(key_vector),
+                winners=winners,
+                losers=losers,
+                r_hat=None,
+                misspecification_error=None,
+            )
+            np.savez_compressed(
+                cache_path,
+                key_vector=result.key_vector,
+                winners=result.winners,
+                losers=result.losers,
+                r_hat=np.array([], dtype=float),
+                misspecification_error=np.array([], dtype=float),
+            )
+            return result
+
         r_hat, _ = ut.fit_bradley_terry(winners, losers, self.n_items, beta=self.beta)
-        misspec_error = ut.misspecification_error(
-            winners, losers, r_hat, beta=self.beta
-        )
+        misspec_error = ut.misspecification_error(winners, losers, r_hat, beta=self.beta)
 
         result = SubgroupResult(
             key_vector=np.asarray(key_vector),
@@ -332,6 +357,7 @@ class DistortionSimulation:
                 pop_utilities=cached["pop_utilities"],
                 absolute_subsection_sizes=cached["absolute_subsection_sizes"],
                 misspec_errors=dict(zip(misspec_keys, misspec_values)),
+                included_subgroup_indices=cached["included_subgroup_indices"],
                 avg_utils=cached["avg_utils"],
                 true_ranking=cached["true_ranking"],
                 borda_scores=cached["borda_scores"],
@@ -341,8 +367,9 @@ class DistortionSimulation:
             )
 
         pop_utilities = []
-        absolute_subsection_sizes = []
+        absolute_subsection_sizes = np.zeros(len(self.vector_keys), dtype=np.int64)
         misspec_errors: dict[int, float] = {}
+        included_subgroup_indices: list[int] = []
 
         for i, vector_key in tqdm(
             enumerate(self.vector_keys),
@@ -350,15 +377,23 @@ class DistortionSimulation:
             desc="Computing subgroup fits",
         ):
             subgroup = self.run_subgroup(vector_key, language=None)
+            subgroup_size = len(subgroup.winners)
+            absolute_subsection_sizes[i] = subgroup_size
+            if subgroup_size == 0:
+                continue
+
             pop_utilities.append(subgroup.r_hat)
-            absolute_subsection_sizes.append(len(subgroup.winners))
             misspec_errors[i] = subgroup.misspecification_error
+            included_subgroup_indices.append(i)
+
+        if not pop_utilities:
+            raise ValueError("No non-empty subgroups were found for the selected configuration.")
 
         pop_utilities_array = np.stack(pop_utilities)
-        absolute_subsection_sizes_array = np.asarray(absolute_subsection_sizes)
+        included_subgroup_indices_array = np.asarray(included_subgroup_indices, dtype=np.int64)
         voter_dist = None
         if self.weight_voter_dist_by_subgroup_size:
-            voter_dist = absolute_subsection_sizes_array.astype(float)
+            voter_dist = absolute_subsection_sizes[included_subgroup_indices_array].astype(float)
 
         avg_utils = pop_utilities_array.sum(axis=0)
         true_ranking = np.argsort(-avg_utils)
@@ -377,9 +412,10 @@ class DistortionSimulation:
         np.savez_compressed(
             population_cache_path,
             pop_utilities=pop_utilities_array,
-            absolute_subsection_sizes=absolute_subsection_sizes_array,
+            absolute_subsection_sizes=absolute_subsection_sizes,
             misspec_keys=np.asarray(list(misspec_errors.keys()), dtype=np.int64),
             misspec_values=np.asarray(list(misspec_errors.values()), dtype=float),
+            included_subgroup_indices=included_subgroup_indices_array,
             avg_utils=avg_utils,
             true_ranking=true_ranking,
             borda_scores=borda_scores,
@@ -390,8 +426,9 @@ class DistortionSimulation:
 
         return SimulationResult(
             pop_utilities=pop_utilities_array,
-            absolute_subsection_sizes=absolute_subsection_sizes_array,
+            absolute_subsection_sizes=absolute_subsection_sizes,
             misspec_errors=misspec_errors,
+            included_subgroup_indices=included_subgroup_indices_array,
             avg_utils=avg_utils,
             true_ranking=true_ranking,
             borda_scores=borda_scores,
@@ -447,7 +484,7 @@ def main() -> None:
         weight_voter_dist_by_subgroup_size=args.weight_voter_dist_by_subgroup_size,
     )
     run = None
-    run_name = f"simulation_11-{simulation._cache_key_value}"
+    run_name = f"simulation_12-{simulation._cache_key_value}"
     wandb_enabled = not args.disable_wandb
 
     if wandb_enabled:
@@ -489,11 +526,12 @@ def main() -> None:
                 columns=["subgroup_index", "vector_key", "subgroup_size"]
             )
             for i, vector_key in enumerate(simulation.vector_keys):
-                misspec_table.add_data(
-                    i,
-                    format_vector_key(vector_key),
-                    result.misspec_errors[i],
-                )
+                if i in result.misspec_errors:
+                    misspec_table.add_data(
+                        i,
+                        format_vector_key(vector_key),
+                        result.misspec_errors[i],
+                    )
                 subgroup_size_table.add_data(
                     i,
                     format_vector_key(vector_key),
