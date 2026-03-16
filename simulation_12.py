@@ -10,7 +10,6 @@ import socket
 import numpy as np
 from datasets import load_dataset
 from tqdm import tqdm
-import wandb
 
 import utils_3 as ut
 
@@ -118,11 +117,64 @@ class DistortionSimulation:
         self.all_candidate_idxs: dict[str, int] | None = None
         self.vector_keys = bit_strings(len(self.ds_keys))
 
+        # Cached/precomputed arrays populated by load()
+        self._cache_key_value = self._cache_key()
+        self._num_rows: int | None = None
+        self._language_arr: np.ndarray | None = None
+        self._winner_arr: np.ndarray | None = None
+        self._winner_code: np.ndarray | None = None
+        self._model_a_idx: np.ndarray | None = None
+        self._model_b_idx: np.ndarray | None = None
+        self._key_arrays: list[np.ndarray] | None = None
+        self._subgroup_codes: np.ndarray | None = None
+
     def load(self) -> None:
         dataset = load_dataset(self.dataset_name)
         self.train_data = dataset[self.split]
+
+        # Preserve the original candidate indexing behavior as closely as possible.
         all_candidates = set(self.train_data["model_a"]).union(set(self.train_data["model_b"]))
-        self.all_candidate_idxs = {candidate: i for i, candidate in enumerate(all_candidates)}
+        self.all_candidate_idxs = {
+            candidate: i for i, candidate in enumerate(all_candidates)
+        }
+
+        model_a = np.asarray(self.train_data["model_a"])
+        model_b = np.asarray(self.train_data["model_b"])
+        winner = np.asarray(self.train_data["winner"])
+        language = np.asarray(self.train_data["language"])
+
+        self._num_rows = len(self.train_data)
+        self._language_arr = language
+        self._winner_arr = winner
+
+        self._model_a_idx = np.fromiter(
+            (self.all_candidate_idxs[candidate] for candidate in model_a),
+            dtype=np.int64,
+            count=len(model_a),
+        )
+        self._model_b_idx = np.fromiter(
+            (self.all_candidate_idxs[candidate] for candidate in model_b),
+            dtype=np.int64,
+            count=len(model_b),
+        )
+
+        winner_code = np.zeros(len(winner), dtype=np.int8)
+        winner_code[winner == "model_a"] = 1
+        winner_code[winner == "model_b"] = 2
+        self._winner_code = winner_code
+
+        key_arrays: list[np.ndarray] = []
+        for path in self.ds_keys:
+            values = self.train_data
+            for key in path:
+                values = values[key]
+            key_arrays.append(np.asarray(values, dtype=np.uint8))
+        self._key_arrays = key_arrays
+
+        subgroup_codes = np.zeros(len(self.train_data), dtype=np.uint32)
+        for arr in key_arrays:
+            subgroup_codes = (subgroup_codes << 1) | arr.astype(np.uint32)
+        self._subgroup_codes = subgroup_codes
 
     @property
     def n_items(self) -> int:
@@ -137,15 +189,6 @@ class DistortionSimulation:
             "ds_keys": self.ds_keys,
             "beta": self.beta,
             "weight_voter_dist_by_subgroup_size": self.weight_voter_dist_by_subgroup_size,
-        }
-        raw = json.dumps(payload, sort_keys=True)
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-
-    def _mask_cache_key(self) -> str:
-        payload = {
-            "dataset_name": self.dataset_name,
-            "split": self.split,
-            "ds_keys": self.ds_keys,
         }
         raw = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -168,7 +211,7 @@ class DistortionSimulation:
             "beta": self.beta,
             "cache_dir": str(self.cache_dir),
             "weight_voter_dist_by_subgroup_size": self.weight_voter_dist_by_subgroup_size,
-            "cache_key": self._cache_key(),
+            "cache_key": self._cache_key_value,
             "num_keys": len(self.ds_keys),
             "num_subgroups": len(self.vector_keys),
         }
@@ -176,17 +219,17 @@ class DistortionSimulation:
     def _subgroup_cache_path(self, key_vector: np.ndarray, language: str | None) -> Path:
         language_token = "all" if language is None else language
         vector_token = format_vector_key(key_vector)
-        filename = f"subgroup_{self._cache_key()}_{language_token}_{vector_token}.npz"
+        filename = f"subgroup_{self._cache_key_value}_{language_token}_{vector_token}.npz"
         return self.cache_dir / filename
 
     def _population_cache_path(self) -> Path:
-        return self.cache_dir / f"population_{self._cache_key()}.npz"
+        return self.cache_dir / f"population_{self._cache_key_value}.npz"
 
-    def _mask_cache_path(self, key_vector: np.ndarray, language: str | None) -> Path:
-        language_token = "all" if language is None else language
-        vector_token = format_vector_key(key_vector)
-        filename = f"mask_{self._mask_cache_key()}_{language_token}_{vector_token}.npz"
-        return self.cache_dir / filename
+    def _vector_to_code(self, key_vector: np.ndarray) -> int:
+        code = 0
+        for bit in np.asarray(key_vector, dtype=np.uint8):
+            code = (code << 1) | int(bit)
+        return code
 
     def filter_fast(
         self,
@@ -196,58 +239,51 @@ class DistortionSimulation:
     ) -> np.ndarray:
         if self.train_data is None:
             raise RuntimeError("Simulation data has not been loaded.")
+        if self._subgroup_codes is None or self._language_arr is None:
+            raise RuntimeError("Precomputed arrays are not available. Call load() first.")
 
-        cache_path = self._mask_cache_path(key_vector, language)
-        if cache_path.exists():
-            cached = np.load(cache_path)
-            return cached["mask"]
+        subgroup_code = self._vector_to_code(key_vector)
 
         if language is not None:
-            mask = np.asarray(self.train_data["language"]) == language
+            mask = self._language_arr == language
         else:
-            mask = np.ones(len(self.train_data), dtype=bool)
+            mask = np.ones(self._num_rows, dtype=bool)
 
-        iterator = zip(self.ds_keys, key_vector)
         if show_progress:
-            iterator = tqdm(iterator, total=len(self.ds_keys), leave=False)
+            # Keep the same user-facing option/shape as the original function,
+            # even though the heavy work is already precomputed.
+            iterator = tqdm(range(len(self.ds_keys)), total=len(self.ds_keys), leave=False)
+            for _ in iterator:
+                pass
 
-        for path, target in iterator:
-            values = self.train_data
-            for key in path:
-                values = values[key]
-            mask &= np.asarray(values) == target
-
-        np.savez_compressed(cache_path, mask=mask)
+        mask &= self._subgroup_codes == subgroup_code
         return mask
 
     def process(self, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if self.train_data is None or self.all_candidate_idxs is None:
             raise RuntimeError("Simulation data has not been loaded.")
+        if (
+            self._winner_code is None
+            or self._model_a_idx is None
+            or self._model_b_idx is None
+        ):
+            raise RuntimeError("Precomputed arrays are not available. Call load() first.")
 
-        winners_raw = np.asarray(self.train_data["winner"])[mask]
-        valid_mask = (winners_raw == "model_a") | (winners_raw == "model_b")
+        winner_code = self._winner_code[mask]
+        valid_mask = (winner_code == 1) | (winner_code == 2)
 
-        winners_raw = winners_raw[valid_mask]
-        model_a = np.asarray(self.train_data["model_a"])[mask][valid_mask]
-        model_b = np.asarray(self.train_data["model_b"])[mask][valid_mask]
+        winner_code = winner_code[valid_mask]
+        a_idx = self._model_a_idx[mask][valid_mask]
+        b_idx = self._model_b_idx[mask][valid_mask]
 
-        a_idx = np.fromiter(
-            (self.all_candidate_idxs[candidate] for candidate in model_a),
-            dtype=np.int64,
-            count=len(model_a),
-        )
-        b_idx = np.fromiter(
-            (self.all_candidate_idxs[candidate] for candidate in model_b),
-            dtype=np.int64,
-            count=len(model_b),
-        )
-
-        model_a_wins = winners_raw == "model_a"
+        model_a_wins = winner_code == 1
         winners = np.where(model_a_wins, a_idx, b_idx)
         losers = np.where(model_a_wins, b_idx, a_idx)
         return winners, losers
 
-    def run_subgroup(self, key_vector: np.ndarray, language: str | None = None) -> SubgroupResult:
+    def run_subgroup(
+        self, key_vector: np.ndarray, language: str | None = None
+    ) -> SubgroupResult:
         cache_path = self._subgroup_cache_path(key_vector, language)
         if cache_path.exists():
             cached = np.load(cache_path)
@@ -262,7 +298,9 @@ class DistortionSimulation:
         mask = self.filter_fast(key_vector, language=language)
         winners, losers = self.process(mask)
         r_hat, _ = ut.fit_bradley_terry(winners, losers, self.n_items, beta=self.beta)
-        misspec_error = ut.misspecification_error(winners, losers, r_hat, beta=self.beta)
+        misspec_error = ut.misspecification_error(
+            winners, losers, r_hat, beta=self.beta
+        )
 
         result = SubgroupResult(
             key_vector=np.asarray(key_vector),
@@ -387,7 +425,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--wandb-entity",
-        default='jnzhao3',
+        default="jnzhao3",
         help="Optional Weights & Biases entity/team.",
     )
     parser.add_argument(
@@ -409,7 +447,7 @@ def main() -> None:
         weight_voter_dist_by_subgroup_size=args.weight_voter_dist_by_subgroup_size,
     )
     run = None
-    run_name = f"simulation_11-{simulation._cache_key()}"
+    run_name = f"simulation_11-{simulation._cache_key_value}"
     wandb_enabled = not args.disable_wandb
 
     if wandb_enabled:
@@ -427,7 +465,7 @@ def main() -> None:
             title=f"{run_name} started",
             text=(
                 f"Simulation started on {socket.gethostname()} "
-                f"with cache_key={simulation._cache_key()}."
+                f"with cache_key={simulation._cache_key_value}."
             ),
         )
 
@@ -444,8 +482,12 @@ def main() -> None:
         )
 
         if run is not None:
-            misspec_table = wandb.Table(columns=["subgroup_index", "vector_key", "misspecification_error"])
-            subgroup_size_table = wandb.Table(columns=["subgroup_index", "vector_key", "subgroup_size"])
+            misspec_table = wandb.Table(
+                columns=["subgroup_index", "vector_key", "misspecification_error"]
+            )
+            subgroup_size_table = wandb.Table(
+                columns=["subgroup_index", "vector_key", "subgroup_size"]
+            )
             for i, vector_key in enumerate(simulation.vector_keys):
                 misspec_table.add_data(
                     i,
@@ -462,7 +504,7 @@ def main() -> None:
             )
             distortion_table.add_data(
                 run_name,
-                simulation._cache_key(),
+                simulation._cache_key_value,
                 result.distortion,
                 result.k,
             )
@@ -502,14 +544,16 @@ def main() -> None:
                     "distortion_table": distortion_table,
                 }
             )
-            wandb.run.summary["cache_key"] = simulation._cache_key()
-            wandb.run.summary["population_cache_path"] = str(simulation._population_cache_path())
+            wandb.run.summary["cache_key"] = simulation._cache_key_value
+            wandb.run.summary["population_cache_path"] = str(
+                simulation._population_cache_path()
+            )
             wandb.run.summary["subgroup_cache_dir"] = str(simulation.cache_dir)
             wandb.alert(
                 title=f"{run_name} finished",
                 text=(
                     f"Simulation completed with distortion={result.distortion:.6g}, "
-                    f"k={result.k}, cache_key={simulation._cache_key()}."
+                    f"k={result.k}, cache_key={simulation._cache_key_value}."
                 ),
             )
     except Exception as exc:
