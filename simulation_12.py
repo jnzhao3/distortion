@@ -21,7 +21,7 @@ except ImportError:
 
 DEFAULT_DATASET_NAME = "lmarena-ai/arena-human-preference-140k"
 DEFAULT_SPLIT = "train"
-DEFAULT_CACHE_DIR = Path(".cache") / "simulation_11"
+DEFAULT_CACHE_DIR = Path(".cache") / "simulation_12"
 DEFAULT_DS_KEYS = [
     ("is_code",),
     ("category_tag", "creative_writing_v0.1", "creative_writing"),
