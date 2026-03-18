@@ -12,16 +12,14 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 import utils_3 as ut
-
-try:
-    import wandb
-except ImportError:
-    wandb = None
+import wandb
 
 
 DEFAULT_DATASET_NAME = "lmarena-ai/arena-human-preference-140k"
 DEFAULT_SPLIT = "train"
 DEFAULT_CACHE_DIR = Path(".cache") / "simulation_12"
+R_HAT_SCALE_VERSION = 1
+TOP_SUBGROUP_COUNT = 20
 DEFAULT_DS_KEYS = [
     ("is_code",),
     ("category_tag", "creative_writing_v0.1", "creative_writing"),
@@ -71,6 +69,19 @@ def resolve_ds_keys(key_names: list[str] | None) -> list[tuple[str, ...]]:
 
 def format_vector_key(key_vector: np.ndarray) -> str:
     return "".join(map(str, np.asarray(key_vector, dtype=np.uint8).tolist()))
+
+
+def scale_r_hat(r_hat: np.ndarray) -> np.ndarray:
+    r_hat = np.asarray(r_hat, dtype=float)
+    if r_hat.size == 0:
+        return r_hat
+
+    min_val = float(np.min(r_hat))
+    max_val = float(np.max(r_hat))
+    span = max_val - min_val
+    if span <= 0.0:
+        return np.zeros_like(r_hat, dtype=float)
+    return (r_hat - min_val) / span
 
 
 @dataclass
@@ -190,6 +201,7 @@ class DistortionSimulation:
             "ds_keys": self.ds_keys,
             "beta": self.beta,
             "weight_voter_dist_by_subgroup_size": self.weight_voter_dist_by_subgroup_size,
+            "r_hat_scale_version": R_HAT_SCALE_VERSION,
         }
         raw = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -291,6 +303,8 @@ class DistortionSimulation:
             r_hat = cached["r_hat"]
             if r_hat.size == 0:
                 r_hat = None
+            else:
+                r_hat = scale_r_hat(r_hat)
             misspecification_error = cached["misspecification_error"]
             if misspecification_error.size == 0:
                 misspecification_error = None
@@ -326,6 +340,7 @@ class DistortionSimulation:
 
         r_hat, _ = ut.fit_bradley_terry(winners, losers, self.n_items, beta=self.beta)
         misspec_error = ut.misspecification_error(winners, losers, r_hat, beta=self.beta)
+        r_hat = scale_r_hat(r_hat)
 
         result = SubgroupResult(
             key_vector=np.asarray(key_vector),
@@ -366,10 +381,9 @@ class DistortionSimulation:
                 k=int(cached["k"]),
             )
 
-        pop_utilities = []
         absolute_subsection_sizes = np.zeros(len(self.vector_keys), dtype=np.int64)
         misspec_errors: dict[int, float] = {}
-        included_subgroup_indices: list[int] = []
+        subgroup_utilities: dict[int, np.ndarray] = {}
 
         for i, vector_key in tqdm(
             enumerate(self.vector_keys),
@@ -382,15 +396,25 @@ class DistortionSimulation:
             if subgroup_size == 0:
                 continue
 
-            pop_utilities.append(subgroup.r_hat)
+            subgroup_utilities[i] = subgroup.r_hat
             misspec_errors[i] = subgroup.misspecification_error
-            included_subgroup_indices.append(i)
-
-        if not pop_utilities:
+        if not subgroup_utilities:
             raise ValueError("No non-empty subgroups were found for the selected configuration.")
 
-        pop_utilities_array = np.stack(pop_utilities)
-        included_subgroup_indices_array = np.asarray(included_subgroup_indices, dtype=np.int64)
+        ranked_indices = np.argsort(-absolute_subsection_sizes)
+        top_subgroup_indices = [
+            int(i)
+            for i in ranked_indices
+            if absolute_subsection_sizes[i] > 0 and i in subgroup_utilities
+        ][:TOP_SUBGROUP_COUNT]
+        if not top_subgroup_indices:
+            raise ValueError("No non-empty subgroups remained after top-size filtering.")
+
+        included_subgroup_indices_array = np.asarray(top_subgroup_indices, dtype=np.int64)
+        pop_utilities_array = np.stack(
+            [subgroup_utilities[i] for i in included_subgroup_indices_array]
+        )
+        misspec_errors = {i: misspec_errors[i] for i in included_subgroup_indices_array.tolist()}
         voter_dist = None
         if self.weight_voter_dist_by_subgroup_size:
             voter_dist = absolute_subsection_sizes[included_subgroup_indices_array].astype(float)
@@ -466,6 +490,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional Weights & Biases entity/team.",
     )
     parser.add_argument(
+        "--wandb-group",
+        default=None,
+        help="Optional Weights & Biases run group name.",
+    )
+    parser.add_argument(
         "--disable-wandb",
         action="store_true",
         help="Disable Weights & Biases logging.",
@@ -495,6 +524,7 @@ def main() -> None:
         run = wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,
+            group=args.wandb_group,
             name=run_name,
             config=simulation.config_dict(),
         )
