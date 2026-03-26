@@ -17,7 +17,7 @@ import wandb
 
 DEFAULT_DATASET_NAME = "lmarena-ai/arena-human-preference-140k"
 DEFAULT_SPLIT = "train"
-DEFAULT_CACHE_DIR = Path(".cache") / "simulation_12"
+DEFAULT_CACHE_DIR = Path(".cache") / "simulation_12_02"
 R_HAT_SCALE_VERSION = 1
 TOP_SUBGROUP_COUNT = 20
 DEFAULT_DS_KEYS = [
@@ -513,7 +513,7 @@ def main() -> None:
         weight_voter_dist_by_subgroup_size=args.weight_voter_dist_by_subgroup_size,
     )
     run = None
-    run_name = f"simulation_12-{simulation._cache_key_value}"
+    run_name = f"simulation_12_02-{simulation._cache_key_value}"
     wandb_enabled = not args.disable_wandb
 
     if wandb_enabled:
@@ -568,12 +568,13 @@ def main() -> None:
                     int(result.absolute_subsection_sizes[i]),
                 )
             distortion_table = wandb.Table(
-                columns=["run_name", "cache_key", "distortion", "k"]
+                columns=["run_name", "cache_key", "distortion", "beta", "k"]
             )
             distortion_table.add_data(
                 run_name,
                 simulation._cache_key_value,
                 result.distortion,
+                simulation.beta,
                 result.k,
             )
 
