@@ -173,7 +173,7 @@ class Population:
 
             self.population_utilities[i] = r_hat # TODO: fix the normalization
 
-        self.population_utilities = self._scale_r_hat(self.population_utilities)
+        # self.population_utilities = self._scale_r_hat(self.population_utilities)
 
         all_subgroup_data = pairwise_data.data_by_subgroups(list(self.subgroup_to_idx.keys()))
         self.single_latent_r_hat, _ = self._fit_bradley_terry(
@@ -233,10 +233,10 @@ def bt_neg_log_likelihood(r_free, winners, losers, n_items, cand_distr=None, bet
     
     # log sigma(diff) = -log(1 + exp(-diff))
     # use stable form:
-    # if cand_distr is not None:
-    #     weighted_terms = np.logaddexp(0.0, -diff) / (cand_distr[winners] * cand_distr[losers])
-    # else:
-    weighted_terms = np.logaddexp(0.0, -diff)
+    if cand_distr is not None:
+        weighted_terms = np.logaddexp(0.0, -diff) / (cand_distr[winners] * cand_distr[losers])
+    else:
+        weighted_terms = np.logaddexp(0.0, -diff)
     nll = np.sum(weighted_terms) # TODO: normalize by probability of sampling pair
     return nll
 
