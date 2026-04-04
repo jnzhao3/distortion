@@ -171,9 +171,11 @@ class Population:
                 pairwise_data.candidate_distr
             )
 
+            r_hat = self._scale_r_hat(r_hat)
+
             self.population_utilities[i] = r_hat # TODO: fix the normalization
 
-        self.population_utilities = self._scale_r_hat(self.population_utilities)
+        # self.population_utilities = self._scale_r_hat(self.population_utilities)
 
         all_subgroup_data = pairwise_data.data_by_subgroups(list(self.subgroup_to_idx.keys()))
         self.single_latent_r_hat, _ = self._fit_bradley_terry(
@@ -304,6 +306,7 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
         diffs = u[:, None] - u[None, :]
         P += voter_dist[v] * expit(beta * diffs)
 
+    np.fill_diagonal(P, 0.0) # remove this?
     borda_scores = P @ cand_dist
     ranking = np.argsort(-borda_scores)
 
