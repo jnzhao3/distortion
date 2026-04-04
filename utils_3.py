@@ -173,7 +173,7 @@ class Population:
 
             self.population_utilities[i] = r_hat # TODO: fix the normalization
 
-        # self.population_utilities = self._scale_r_hat(self.population_utilities)
+        self.population_utilities = self._scale_r_hat(self.population_utilities)
 
         all_subgroup_data = pairwise_data.data_by_subgroups(list(self.subgroup_to_idx.keys()))
         self.single_latent_r_hat, _ = self._fit_bradley_terry(
@@ -182,6 +182,8 @@ class Population:
             pairwise_data.M,
             pairwise_data.candidate_distr
         )
+
+        self.single_latent_r_hat = self._scale_r_hat(self.single_latent_r_hat)
 
     @staticmethod
     def _fit_bradley_terry(winners, losers, n_items, cand_distr=None):
@@ -209,11 +211,10 @@ class Population:
             return r_hat
 
         min_val = float(np.min(r_hat))
-        max_val = float(np.max(r_hat))
-        span = max_val - min_val
-        if span <= 0.0:
-            return np.zeros_like(r_hat, dtype=float)
-        return (r_hat - min_val) / span
+        if min_val >= 0.0:
+            return r_hat.astype(float)
+
+        return (r_hat - min_val).astype(float)
 
     @property
     def avg_utilities(self):
