@@ -312,6 +312,83 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
 
     return borda_scores, ranking
 
+import numpy as np
+from scipy.special import expit
+
+
+def peeling_borda_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    cand_dist=None,
+    beta=1.0,
+):
+    """
+    Peeling Borda ranking from population utilities.
+
+    At each round:
+      1. Compute pairwise probabilities among the remaining candidates
+      2. Compute Borda scores on the remaining set
+      3. Select the top scorer as the next ranked candidate
+      4. Remove that candidate and repeat
+
+    Args:
+        utilities: array of shape (V, C), utilities for V voters and C candidates
+        voter_dist: optional array of shape (V,), voter distribution
+        cand_dist: optional array of shape (C,), candidate distribution
+        beta: logistic inverse-temperature for pairwise probabilities
+
+    Returns:
+        round_scores: list of length C, where round_scores[t] is an array of
+            Borda scores for the remaining candidates at round t
+        ranking: array of shape (C,), candidates ordered from best to worst
+    """
+    utilities = np.asarray(utilities, dtype=float)
+    V, C = utilities.shape
+
+    if voter_dist is None:
+        voter_dist = np.ones(V, dtype=float) / V
+    else:
+        voter_dist = np.asarray(voter_dist, dtype=float)
+        assert voter_dist.shape == (V,)
+        voter_dist = voter_dist / voter_dist.sum()
+
+    if cand_dist is None:
+        cand_dist = np.ones(C, dtype=float) / C
+    else:
+        cand_dist = np.asarray(cand_dist, dtype=float)
+        assert cand_dist.shape == (C,)
+        cand_dist = cand_dist / cand_dist.sum()
+
+    remaining = list(range(C))
+    ranking = []
+    round_scores = []
+
+    while remaining:
+        # Utilities and candidate distribution restricted to remaining candidates
+        rem_utils = utilities[:, remaining]                 # shape (V, R)
+        rem_cand_dist = cand_dist[remaining].copy()        # shape (R,)
+        rem_cand_dist /= rem_cand_dist.sum()
+
+        R = len(remaining)
+        P = np.zeros((R, R), dtype=float)
+
+        for v, u in enumerate(rem_utils):
+            diffs = u[:, None] - u[None, :]
+            P += voter_dist[v] * expit(beta * diffs)
+
+        np.fill_diagonal(P, 0.0)
+
+        borda_scores = P @ rem_cand_dist
+        round_scores.append(borda_scores.copy())
+
+        winner_local = np.argmax(borda_scores)
+        winner_global = remaining[winner_local]
+
+        ranking.append(winner_global)
+        remaining.pop(winner_local)
+
+    return round_scores, np.array(ranking, dtype=int)
+
 def leaderboard_dist(ranking, true_ranking, avg_utils):
     ranking = np.asarray(ranking)
     true_ranking = np.asarray(true_ranking)
