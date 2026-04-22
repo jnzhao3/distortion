@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import linprog, minimize
 from scipy.special import expit
 from tqdm import tqdm
 
@@ -312,8 +312,171 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
 
     return borda_scores, ranking
 
-import numpy as np
-from scipy.special import expit
+
+def conditional_pair_distr_from_pairwise(winners, losers, n_items=None):
+    """
+    Compute p({x, y} | x) from observed pairwise comparisons.
+
+    Rows are conditioned on candidate x appearing in the unordered pair. Entry
+    [x, y] is the probability that the other candidate in that pair is y,
+    regardless of which candidate won the comparison.
+    """
+    winners = np.asarray(winners, dtype=int)
+    losers = np.asarray(losers, dtype=int)
+    if winners.shape != losers.shape:
+        raise ValueError("winners and losers must have the same shape.")
+
+    if n_items is None:
+        if winners.size == 0:
+            raise ValueError("n_items is required when winners and losers are empty.")
+        n_items = int(max(winners.max(), losers.max()) + 1)
+
+    pair_counts = np.zeros((n_items, n_items), dtype=float)
+    candidate_counts = np.zeros(n_items, dtype=float)
+
+    for winner, loser in zip(winners, losers):
+        if winner == loser:
+            continue
+        pair_counts[winner, loser] += 1.0
+        pair_counts[loser, winner] += 1.0
+        candidate_counts[winner] += 1.0
+        candidate_counts[loser] += 1.0
+
+    conditional_distr = np.zeros_like(pair_counts)
+    nonzero = candidate_counts > 0.0
+    conditional_distr[nonzero] = pair_counts[nonzero] / candidate_counts[nonzero, None]
+    return conditional_distr
+
+
+def conditional_distr_from_pairwise(*args, **kwargs):
+    return conditional_pair_distr_from_pairwise(*args, **kwargs)
+
+
+def _normalize_distribution(dist, size, name):
+    if dist is None:
+        return np.ones(size, dtype=float) / size
+
+    dist = np.asarray(dist, dtype=float)
+    if dist.shape != (size,):
+        raise ValueError(f"{name} must have shape ({size},), got {dist.shape}.")
+    if np.any(dist < 0):
+        raise ValueError(f"{name} must be nonnegative.")
+
+    total = dist.sum()
+    if total <= 0.0:
+        raise ValueError(f"{name} must have positive total mass.")
+    return dist / total
+
+
+def _pairwise_win_probabilities_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    beta=1.0,
+):
+    utilities = np.asarray(utilities, dtype=float)
+    if utilities.ndim != 2:
+        raise ValueError("utilities must have shape (num_voters, num_candidates).")
+
+    V, C = utilities.shape
+    voter_dist = _normalize_distribution(voter_dist, V, "voter_dist")
+
+    P = np.zeros((C, C), dtype=float)
+    for v, u in enumerate(utilities):
+        diffs = u[:, None] - u[None, :]
+        P += voter_dist[v] * expit(beta * diffs)
+
+    np.fill_diagonal(P, 0.5)
+    return P
+
+
+def copeland_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    cand_dist=None,
+    beta=1.0,
+    tie_tol=1e-12,
+):
+    """
+    Copeland scores and ranking from population utilities.
+
+    Pairwise preferences are computed as population-weighted Bradley-Terry
+    probabilities. Candidate i receives the total opponent mass it beats minus
+    the total opponent mass it loses to; pairwise ties contribute zero.
+    """
+    utilities = np.asarray(utilities, dtype=float)
+    if utilities.ndim != 2:
+        raise ValueError("utilities must have shape (num_voters, num_candidates).")
+
+    _, C = utilities.shape
+    cand_dist = _normalize_distribution(cand_dist, C, "cand_dist")
+
+    P = _pairwise_win_probabilities_from_population_utilities(
+        utilities,
+        voter_dist=voter_dist,
+        beta=beta,
+    )
+    margins = P - P.T
+
+    wins = margins > tie_tol
+    losses = margins < -tie_tol
+    np.fill_diagonal(wins, False)
+    np.fill_diagonal(losses, False)
+
+    copeland_scores = wins.astype(float) @ cand_dist - losses.astype(float) @ cand_dist
+    ranking = np.argsort(-copeland_scores)
+    return copeland_scores, ranking
+
+
+# for distortion calcualtion for maximal lotteries, need to take the expectation
+
+
+def maximal_lotteries_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    beta=1.0,
+    tie_tol=1e-12,
+):
+    """
+    Maximal lottery from population utilities.
+
+    Returns a mixed strategy over candidates for the majority-margin game,
+    followed by candidates sorted by decreasing lottery probability.
+    """
+    P = _pairwise_win_probabilities_from_population_utilities(
+        utilities,
+        voter_dist=voter_dist,
+        beta=beta,
+    )
+    margins = P - P.T
+    C = margins.shape[0]
+
+    # For skew-symmetric majority games, the value is zero. A maximal lottery
+    # is any distribution p with margins.T @ p >= 0.
+    result = linprog(
+        c=np.zeros(C, dtype=float),
+        A_ub=-margins.T,
+        b_ub=np.zeros(C, dtype=float),
+        A_eq=np.ones((1, C), dtype=float),
+        b_eq=np.array([1.0]),
+        bounds=[(0.0, 1.0)] * C,
+        method="highs",
+    )
+    if not result.success:
+        raise RuntimeError(f"Maximal lottery solve failed: {result.message}")
+
+    lottery = np.asarray(result.x, dtype=float)
+    lottery[np.abs(lottery) < tie_tol] = 0.0
+    total = lottery.sum()
+    if total <= 0.0:
+        raise RuntimeError("Maximal lottery solve returned zero total probability.")
+    lottery /= total
+
+    ranking = np.argsort(-lottery)
+    return lottery, ranking
+
+
+def maximal_lottery_from_population_utilities(*args, **kwargs):
+    return maximal_lotteries_from_population_utilities(*args, **kwargs)
 
 
 def peeling_borda_from_population_utilities(
