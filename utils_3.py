@@ -306,7 +306,7 @@ def borda_from_population_utilities(utilities, voter_dist=None, cand_dist=None, 
         diffs = u[:, None] - u[None, :]
         P += voter_dist[v] * expit(beta * diffs)
 
-    np.fill_diagonal(P, 0.0) # remove this?
+    np.fill_diagonal(P, 0.5)
     borda_scores = P @ cand_dist # (m, m) @ (m, ...)
     ranking = np.argsort(-borda_scores)
 
@@ -539,7 +539,7 @@ def peeling_borda_from_population_utilities(
             diffs = u[:, None] - u[None, :]
             P += voter_dist[v] * expit(beta * diffs)
 
-        np.fill_diagonal(P, 0.0)
+        np.fill_diagonal(P, 0.5)
 
         borda_scores = P @ rem_cand_dist
         round_scores.append(borda_scores.copy())
