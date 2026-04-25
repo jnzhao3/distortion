@@ -479,6 +479,110 @@ def maximal_lottery_from_population_utilities(*args, **kwargs):
     return maximal_lotteries_from_population_utilities(*args, **kwargs)
 
 
+def argmax_lottery_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    beta=1.0,
+    tie_tol=1e-12,
+):
+    """
+    Peeling ranking induced by maximal lotteries from population utilities.
+
+    At each round:
+      1. Restrict to the remaining candidates
+      2. Compute the infinite-sample maximal lottery on that restricted game
+      3. Select the candidate with largest lottery mass
+      4. Remove that candidate and repeat
+
+    Returns:
+        round_lotteries: list of length C, where round_lotteries[t] is the
+            maximal lottery over the candidates remaining at round t
+        ranking: array of shape (C,), candidates ordered from best to worst
+    """
+    utilities = np.asarray(utilities, dtype=float)
+    if utilities.ndim != 2:
+        raise ValueError("utilities must have shape (num_voters, num_candidates).")
+
+    V, C = utilities.shape
+    voter_dist = _normalize_distribution(voter_dist, V, "voter_dist")
+
+    remaining = list(range(C))
+    ranking = []
+    round_lotteries = []
+
+    while remaining:
+        rem_utils = utilities[:, remaining]
+        lottery, _ = maximal_lotteries_from_population_utilities(
+            rem_utils,
+            voter_dist=voter_dist,
+            beta=beta,
+            tie_tol=tie_tol,
+        )
+        round_lotteries.append(lottery.copy())
+
+        winner_local = int(np.argmax(lottery))
+        winner_global = remaining[winner_local]
+        ranking.append(winner_global)
+        remaining.pop(winner_local)
+
+    return round_lotteries, np.array(ranking, dtype=int)
+
+
+def nonzero_max_from_population_utilities(
+    utilities,
+    voter_dist=None,
+    beta=1.0,
+    tie_tol=1e-12,
+):
+    """
+    Peeling ranking induced by maximal lotteries from population utilities.
+
+    At each round:
+      1. Restrict to the remaining candidates
+      2. Compute the infinite-sample maximal lottery on that restricted game
+      3. Append every candidate with nonzero lottery mass, ordered by
+         decreasing lottery probability
+      4. Remove those candidates and repeat
+
+    Returns:
+        round_lotteries: list where round_lotteries[t] is the maximal lottery
+            over the candidates remaining at round t
+        ranking: array of shape (C,), candidates ordered from best to worst
+    """
+    utilities = np.asarray(utilities, dtype=float)
+    if utilities.ndim != 2:
+        raise ValueError("utilities must have shape (num_voters, num_candidates).")
+
+    V, C = utilities.shape
+    voter_dist = _normalize_distribution(voter_dist, V, "voter_dist")
+
+    remaining = list(range(C))
+    ranking = []
+    round_lotteries = []
+
+    while remaining:
+        rem_utils = utilities[:, remaining]
+        lottery, ranking_local = maximal_lotteries_from_population_utilities(
+            rem_utils,
+            voter_dist=voter_dist,
+            beta=beta,
+            tie_tol=tie_tol,
+        )
+        round_lotteries.append(lottery.copy())
+
+        nonzero_local = ranking_local[lottery[ranking_local] > tie_tol]
+        if nonzero_local.size == 0:
+            nonzero_local = np.array([int(np.argmax(lottery))], dtype=int)
+
+        selected_globals = [remaining[i] for i in nonzero_local]
+        ranking.extend(selected_globals)
+
+        selected_set = set(selected_globals)
+        remaining = [candidate for candidate in remaining if candidate not in selected_set]
+
+    return round_lotteries, np.array(ranking, dtype=int)
+
+
 def peeling_borda_from_population_utilities(
     utilities,
     voter_dist=None,
