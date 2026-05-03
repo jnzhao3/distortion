@@ -55,7 +55,6 @@ class PairwiseData: # TODO: filter by language?
 
         self.candidates_to_idx = {c : i for i, c in enumerate(included_candidates)}
         self.idx_to_candidates = {i : c for c, i in self.candidates_to_idx.items()}
-        self.candidate_distr = candidate_counts[included_candidate_idxs] / candidate_counts[included_candidate_idxs].sum()
         self.N = N
         self._sorted_candidates = np.sort(included_candidates)
         self._sorted_candidate_idx = np.array(
@@ -64,6 +63,10 @@ class PairwiseData: # TODO: filter by language?
         )
 
         self.winners, self.losers, self.subgroups = self._process_split(train_data)
+        values, counts = np.unique_counts(
+            np.concat([self.winners, self.losers])
+        )
+        self.candidate_distr = counts / counts.sum()
 
         # self.test_winners, self.test_losers, self.test_subgroups = self._process_split(test_data)
 
