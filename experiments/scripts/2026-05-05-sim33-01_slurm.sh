@@ -25,12 +25,12 @@ micromamba activate aorl
 
 
 declare -a commands=(
-  [1]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=1.0 --output-dir=results/2026-05-05-sim33-01/beta_1.0 --wandb-run-name=2026-05-05-sim33-01_1.0'
-  [2]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=3.0 --output-dir=results/2026-05-05-sim33-01/beta_3.0 --wandb-run-name=2026-05-05-sim33-01_3.0'
-  [3]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=5.0 --output-dir=results/2026-05-05-sim33-01/beta_5.0 --wandb-run-name=2026-05-05-sim33-01_5.0'
-  [4]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=10.0 --output-dir=results/2026-05-05-sim33-01/beta_10.0 --wandb-run-name=2026-05-05-sim33-01_10.0'
-  [5]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=20.0 --output-dir=results/2026-05-05-sim33-01/beta_20.0 --wandb-run-name=2026-05-05-sim33-01_20.0'
-  [6]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers=30000 300000 3000000 10000000 --beta=50.0 --output-dir=results/2026-05-05-sim33-01/beta_50.0 --wandb-run-name=2026-05-05-sim33-01_50.0'
+  [1]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=1.0 --output-dir=results/2026-05-05-sim33-01/beta_1.0 --wandb-run-name=2026-05-05-sim33-01_1.0'
+  [2]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=3.0 --output-dir=results/2026-05-05-sim33-01/beta_3.0 --wandb-run-name=2026-05-05-sim33-01_3.0'
+  [3]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=5.0 --output-dir=results/2026-05-05-sim33-01/beta_5.0 --wandb-run-name=2026-05-05-sim33-01_5.0'
+  [4]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=10.0 --output-dir=results/2026-05-05-sim33-01/beta_10.0 --wandb-run-name=2026-05-05-sim33-01_10.0'
+  [5]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=20.0 --output-dir=results/2026-05-05-sim33-01/beta_20.0 --wandb-run-name=2026-05-05-sim33-01_20.0'
+  [6]='python simulation_33.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --sample-numbers 30000 300000 3000000 10000000 --beta=50.0 --output-dir=results/2026-05-05-sim33-01/beta_50.0 --wandb-run-name=2026-05-05-sim33-01_50.0'
 )
 
 parallel --delay 5s --linebuffer -j 1 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"

@@ -54,7 +54,11 @@ def main():
     script_path = "simulation_33.py"
     prefix = ["python", script_path]
     for key, val in COMMON.items():
-        prefix.append(f"--{key}={val}")
+        if isinstance(val, str) and ' ' in val:
+            prefix.append(f"--{key}")
+            prefix.extend(val.split())
+        else:
+            prefix.append(f"--{key}={val}")
 
     scripts_dir = os.path.join(os.path.dirname(__file__), "scripts")
     os.makedirs(scripts_dir, exist_ok=True)

@@ -141,6 +141,41 @@ def main():
             plt.close(fig)
             print(f"  Saved {fname}")
 
+    # ── combined grid: sup_large for all sample counts (2 rows × 3 cols) ────
+    fig_grid, axes = plt.subplots(2, 3, figsize=(18, 8), sharey=True)
+    axes_flat = axes.flatten()
+
+    for idx, n in enumerate(sample_numbers[:6]):
+        ax = axes_flat[idx]
+        betas = pooled[n]['betas']
+        large_betas = betas[betas > 3.0]
+        distortions = pooled[n]['supremum_distortions']
+
+        for m, kw in METHOD_STYLE.items():
+            if m not in distortions or len(large_betas) == 0:
+                continue
+            means = np.array([np.mean(distortions[m][float(b)]) for b in large_betas])
+            stds  = np.array([np.std( distortions[m][float(b)]) for b in large_betas])
+            ax.plot(large_betas, means, **kw)
+            ax.fill_between(large_betas, means - stds, means + stds, alpha=0.15, color=kw['color'])
+
+        ax.set_title(f'n={n:,}')
+        ax.set_xlabel('β')
+        ax.set_ylim(bottom=1.0, top=1.02)
+        ax.grid(True, which='both', alpha=0.3)
+        if idx % 3 == 0:
+            ax.set_ylabel('supremum distortion')
+
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    fig_grid.legend(handles, labels, loc='lower center', ncol=4, fontsize=9,
+                    bbox_to_anchor=(0.5, -0.05))
+    fig_grid.suptitle('Supremum distortion vs β (large β) by sample count', y=1.01)
+    plt.tight_layout()
+    grid_path = os.path.join(PLOTS_DIR, 'sup_large_grid.png')
+    fig_grid.savefig(grid_path, dpi=150, bbox_inches='tight')
+    plt.close(fig_grid)
+    print(f"  Saved sup_large_grid.png")
+
     # ── across num_samples: distortion vs num_samples for selected betas ───
     all_betas = pooled[sample_numbers[0]]['betas']
     selected_betas = [b for b in [1.0, 3.0, 5.0, 10.0, 20.0, 50.0] if b in all_betas]
