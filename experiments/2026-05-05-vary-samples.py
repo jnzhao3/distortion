@@ -47,10 +47,11 @@ def main():
         p.print_help()
         sys.exit(1)
 
-    script_path = os.path.abspath(
+    # script_path = os.path.abspath(
         # os.path.join(os.path.dirname(__file__), "..", "simulation_32.py")
         "simulation_32.py"
-    )
+    # )
+    script_path = "simulation_32.py"
     prefix = ["python", script_path]
     for key, val in COMMON.items():
         prefix.append(f"--{key}={val}")
