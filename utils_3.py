@@ -64,7 +64,7 @@ class PairwiseData: # TODO: filter by language?
 
         self.winners, self.losers, self.subgroups = self._process_split(train_data)
         values, counts = np.unique(
-            np.concat([self.winners, self.losers]),
+            np.concatenate([self.winners, self.losers]),
             return_counts=True
         )
         self.candidate_distr = counts / counts.sum()
