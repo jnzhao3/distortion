@@ -71,7 +71,7 @@ def main():
             j=1,
             limit=32,
             comment="sim32-vary-samples",
-            priority="lowest",
+            priority="high",
         )
         make_runs(gen)
         scripts = gen.generate_str()

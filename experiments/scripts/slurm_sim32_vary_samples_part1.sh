@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:A5000:1
 #SBATCH --account=co_rail
 #SBATCH --partition=savio4_gpu
-#SBATCH --qos=rail_gpu4_lowest
+#SBATCH --qos=rail_gpu4_high
 #SBATCH --requeue
 #SBATCH --array=1-6%32
 #SBATCH --comment=sim32-vary-samples-part1
