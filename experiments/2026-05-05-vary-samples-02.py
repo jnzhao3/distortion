@@ -17,6 +17,7 @@ from generate import SbatchGenerator
 NUM_SAMPLES_SWEEP = [30_000, 100_000]
 
 # ── shared constants ────────────────────────────────────────────────────────
+NAME = '2026-05-05-vary-samples-02'
 COMMON = {
     "num-rounds":         2,
     "ml-sampling-rounds": 2,
@@ -62,7 +63,7 @@ def main():
     if args.local:
         gen = LocalScriptGenerator(prefix=prefix, gpus=[])
         make_runs(gen)
-        fname = os.path.join(scripts_dir, "local_sim32_vary_samples.sh")
+        fname = os.path.join(scripts_dir, f"{NAME}_slurm.sh")
         with open(fname, "w") as f:
             f.write(gen.generate_str())
         print(f"Wrote {fname}")
@@ -78,7 +79,7 @@ def main():
         make_runs(gen)
         scripts = gen.generate_str()
         for i, s in enumerate(scripts):
-            fname = os.path.join(scripts_dir, f"slurm_sim32_vary_samples_part{i+1}.sh")
+            fname = os.path.join(scripts_dir, f"{NAME}_slurm.sh")
             with open(fname, "w") as f:
                 f.write(s)
             print(f"Wrote {fname}")
