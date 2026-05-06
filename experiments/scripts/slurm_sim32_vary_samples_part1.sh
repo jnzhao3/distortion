@@ -25,12 +25,12 @@ micromamba activate aorl
 
 
 declare -a commands=(
-  [1]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=30000 --output-dir=results/sim32/samples_30000 --wandb-run-name=sim32_samples_30000'
-  [2]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=100000 --output-dir=results/sim32/samples_100000 --wandb-run-name=sim32_samples_100000'
-  [3]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=300000 --output-dir=results/sim32/samples_300000 --wandb-run-name=sim32_samples_300000'
-  [4]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=1000000 --output-dir=results/sim32/samples_1000000 --wandb-run-name=sim32_samples_1000000'
-  [5]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=3000000 --output-dir=results/sim32/samples_3000000 --wandb-run-name=sim32_samples_3000000'
-  [6]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=100 --M=30 --N=30 --seed=1001 --num-samples=10000000 --output-dir=results/sim32/samples_10000000 --wandb-run-name=sim32_samples_10000000'
+  [1]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=30000 --output-dir=results/sim32/samples_30000 --wandb-run-name=sim32_samples_30000'
+  [2]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=100000 --output-dir=results/sim32/samples_100000 --wandb-run-name=sim32_samples_100000'
+  [3]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=300000 --output-dir=results/sim32/samples_300000 --wandb-run-name=sim32_samples_300000'
+  [4]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=1000000 --output-dir=results/sim32/samples_1000000 --wandb-run-name=sim32_samples_1000000'
+  [5]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=3000000 --output-dir=results/sim32/samples_3000000 --wandb-run-name=sim32_samples_3000000'
+  [6]='python simulation_32.py --num-rounds=10 --ml-sampling-rounds=1000 --M=30 --N=30 --seed=1001 --num-samples=10000000 --output-dir=results/sim32/samples_10000000 --wandb-run-name=sim32_samples_10000000'
 )
 
 parallel --delay 5s --linebuffer -j 1 {1} ::: "${commands[@]:$COM_ID_S:$PARALLEL_N}"

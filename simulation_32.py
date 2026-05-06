@@ -84,7 +84,9 @@ def make_plot(betas, distortions, title, method_style):
         stds  = np.array([np.std( distortions[m][float(b)]) for b in betas])
         ax.plot(betas, means, **kw)
         ax.fill_between(betas, means - stds, means + stds, alpha=0.15, color=kw['color'])
-    ax.set_xlabel('beta')
+
+    plt.rcParams["text.usetex"] = True
+    plt.xlabel(r"$\beta$")
     ax.set_ylabel('distortion')
     ax.set_title(title)
     ax.legend()
@@ -192,19 +194,20 @@ def main():
     print(f"Saved results to {data_path}")
 
     # --- plots ---
+    # one-shot Borda; iterative Borda; one-shot Copeland; iterative Copeland; iterative ML with argmax; iterative ML with nonzero; iterative ML
     method_style = {
-        'borda':            dict(color='C0', marker='o', linestyle='-',  label='Borda'),
-        'borda_peeling':    dict(color='C1', marker='s', linestyle='--', label='Borda peeling'),
-        'copeland':         dict(color='C2', marker='^', linestyle='-',  label='Copeland'),
-        'copeland_peeling': dict(color='C3', marker='D', linestyle='--', label='Copeland peeling'),
-        'ml_argmax':        dict(color='C4', marker='P', linestyle='-',  label='ML argmax'),
-        'ml_nonzero':       dict(color='C5', marker='*', linestyle='--', label='ML nonzero'),
-        'ml_sampling':      dict(color='C6', marker='h', linestyle='-',  label='ML sampling (expected)', linewidth=2),
+        'borda':            dict(color='C0', marker='o', linestyle='-',  label='one-shot Borda'),
+        'borda_peeling':    dict(color='C1', marker='s', linestyle='--', label='iterative Borda'),
+        'copeland':         dict(color='C2', marker='^', linestyle='-',  label='one-shot Copeland'),
+        'copeland_peeling': dict(color='C3', marker='D', linestyle='--', label='iterative Copeland'),
+        'ml_argmax':        dict(color='C4', marker='P', linestyle='-',  label='iterative ML with argmax'),
+        'ml_nonzero':       dict(color='C5', marker='*', linestyle='--', label='iterative ML with nonzero'),
+        'ml_sampling':      dict(color='C6', marker='h', linestyle='-',  label='iterative ML', linewidth=2),
     }
 
     title_suffix = f'(M={pw.M}, {args.num_samples} samples/round, {args.num_rounds} rounds)'
-    small_betas = betas[betas <= 5.0]
-    large_betas = betas[betas > 5.0]
+    small_betas = betas[betas <= 3.0]
+    large_betas = betas[betas > 3.0]
 
     plots = [
         (betas,       betas_distortions,   'Fixed-weight distortion vs beta',             'fixed_weight_distortion.png'),
