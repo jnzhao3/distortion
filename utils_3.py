@@ -179,6 +179,7 @@ class Population:
             self.population_utilities[i] = r_hat # TODO: fix the normalization
 
         # self.population_utilities = self._scale_r_hat(self.population_utilities)
+        self.population_utilities = self.population_utilities / self.population_utilities.max()
 
         all_subgroup_data = pairwise_data.data_by_subgroups(list(self.subgroup_to_idx.keys()))
         self.single_latent_r_hat, _ = self._fit_bradley_terry(
