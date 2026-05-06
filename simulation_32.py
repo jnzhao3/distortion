@@ -97,10 +97,14 @@ def main():
     args = parse_args()
     np.random.seed(args.seed)
 
+    slurm_info = {k: os.environ[k] for k in (
+        'SLURM_JOB_ID', 'SLURM_ARRAY_JOB_ID', 'SLURM_ARRAY_TASK_ID',
+    ) if k in os.environ}
+
     wandb.init(
         project=args.wandb_project,
         name=args.wandb_run_name,
-        config=vars(args),
+        config={**vars(args), **slurm_info},
     )
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
