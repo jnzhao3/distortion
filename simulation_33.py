@@ -9,9 +9,8 @@ import wandb
 from datasets import load_dataset
 from scipy.special import expit
 from tqdm import tqdm
-import shutil
 
-from utils_3 import PairwiseData, Population
+from utils_3 import PairwiseData, Population, leaderboard_dist
 from utils_4 import (
     ij_from_pairwise,
     borda_ranking, borda_peeling_ranking,
@@ -20,11 +19,7 @@ from utils_4 import (
     make_ml_fn_from_ij_wins,
     expected_leaderboard_distortion, expected_leaderboard_distortion_w,
 )
-from utils_3 import leaderboard_dist
-from scipy.optimize import linprog
-from tqdm import tqdm
-import seaborn as sns
-import matplotlib.pyplot as plt
+from utils_4 import _solve_maximal_lottery
 
 
 def leaderboard_dist_w(ranking, true_ranking, avg_utils, w):
@@ -38,7 +33,6 @@ def leaderboard_dist_w(ranking, true_ranking, avg_utils, w):
 
 
 def sampled_ranking_dist(candidates, ij_wins, tol=1e-12, rounds=10):
-    from utils_4 import _solve_maximal_lottery
     lp_cache = {}
     dist = {}
     for _ in range(rounds):
@@ -63,30 +57,29 @@ def sampled_ranking_dist(candidates, ij_wins, tol=1e-12, rounds=10):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument('--num-samples',         type=int,   default=30_000)
-    p.add_argument('--num-rounds',          type=int,   default=10)
-    p.add_argument('--ml-sampling-rounds',  type=int,   default=100)
-    p.add_argument('--M',                   type=int,   default=30)
-    p.add_argument('--N',                   type=int,   default=30)
-    p.add_argument('--seed',                type=int,   default=1001)
-    p.add_argument('--betas',               type=float, nargs='+',
-                   default=[0.01, 0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 15.0, 20.0,
-                             25.0, 30.0, 35.0, 40.0, 45.0, 50.0])
-    p.add_argument('--output-dir',          type=str,   default='results')
-    p.add_argument('--wandb-project',       type=str,   default='distortion')
-    p.add_argument('--wandb-run-name',      type=str,   default=None)
+    p.add_argument('--beta',                 type=float, default=5.0)
+    p.add_argument('--num-rounds',           type=int,   default=10)
+    p.add_argument('--ml-sampling-rounds',   type=int,   default=100)
+    p.add_argument('--M',                    type=int,   default=30)
+    p.add_argument('--N',                    type=int,   default=30)
+    p.add_argument('--seed',                 type=int,   default=1001)
+    p.add_argument('--sample-numbers',       type=int,   nargs='+',
+                   default=[30_000, 300_000, 3_000_000, 30_000_000])
+    p.add_argument('--output-dir',           type=str,   default='results')
+    p.add_argument('--wandb-project',        type=str,   default='distortion')
+    p.add_argument('--wandb-run-name',       type=str,   default=None)
     return p.parse_args()
 
 
-def make_plot(betas, distortions, title, method_style):
+def make_plot(sample_numbers, distortions, title, method_style):
     fig, ax = plt.subplots(figsize=(10, 5))
     for m, kw in method_style.items():
-        means = np.array([np.mean(distortions[m][float(b)]) for b in betas])
-        stds  = np.array([np.std( distortions[m][float(b)]) for b in betas])
-        ax.plot(betas, means, **kw)
-        ax.fill_between(betas, means - stds, means + stds, alpha=0.15, color=kw['color'])
-
-    ax.set_xlabel('β', fontstyle="italic")
+        means = np.array([np.mean(distortions[m][float(s)]) for s in sample_numbers])
+        stds  = np.array([np.std( distortions[m][float(s)]) for s in sample_numbers])
+        ax.plot(sample_numbers, means, **kw)
+        ax.fill_between(sample_numbers, means - stds, means + stds, alpha=0.15, color=kw['color'])
+    ax.set_xscale('log')
+    ax.set_xlabel('num samples')
     ax.set_ylabel('distortion')
     ax.set_title(title)
     ax.legend()
@@ -112,6 +105,7 @@ def main():
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     output_dir = os.path.join(args.output_dir, timestamp)
     os.makedirs(output_dir, exist_ok=True)
+    print(f"Output dir: {output_dir}")
 
     # --- data ---
     print("Loading dataset...")
@@ -119,9 +113,8 @@ def main():
     pw = PairwiseData(ds, M=args.M, N=args.N)
     population = Population(pw)
 
-    betas = np.asarray(args.betas)
-    true_ranking = np.argsort(-population.avg_utilities)
     candidates = np.arange(pw.M)
+    true_ranking = np.argsort(-population.avg_utilities)
     w = 1 / (1.1 ** np.arange(pw.M))
 
     empirical_pair_distribution = np.zeros((pw.M, pw.M))
@@ -130,26 +123,26 @@ def main():
         second = min(pw.winners[i], pw.losers[i])
         empirical_pair_distribution[first, second] += 1.0
     empirical_pair_distribution /= empirical_pair_distribution.sum()
+    flattened = empirical_pair_distribution.ravel()
 
+    sample_numbers = args.sample_numbers
     methods = ['borda', 'borda_peeling', 'copeland', 'copeland_peeling',
                'ml_argmax', 'ml_nonzero', 'ml_sampling']
-    betas_distortions   = {m: {float(b): [] for b in betas} for m in methods}
-    supremum_distortions = {m: {float(b): [] for b in betas} for m in methods}
-
-    flattened = empirical_pair_distribution.ravel()
-    indices = np.random.choice(len(flattened), size=args.num_samples, p=flattened)
-    coords = np.array(np.unravel_index(indices, empirical_pair_distribution.shape)).T
-    model_As_fixed = coords[..., 0]
-    model_Bs_fixed = coords[..., 1]
-    u_diff = (population.population_utilities[:, model_As_fixed]
-              - population.population_utilities[:, model_Bs_fixed])
+    sample_distortions  = {m: {float(s): [] for s in sample_numbers} for m in methods}
+    supremum_distortions = {m: {float(s): [] for s in sample_numbers} for m in methods}
 
     # --- main loop ---
-    for beta in tqdm(betas, desc='beta'):
-        p = (expit(beta * u_diff) * population.voter_distr[:, None]).sum(axis=0)
+    for num_samples in tqdm(sample_numbers, desc='num_samples'):
+        indices = np.random.choice(len(flattened), size=num_samples, p=flattened)
+        coords = np.array(np.unravel_index(indices, empirical_pair_distribution.shape)).T
+        model_As_fixed = coords[..., 0]
+        model_Bs_fixed = coords[..., 1]
+        u_diff = (population.population_utilities[:, model_As_fixed]
+                  - population.population_utilities[:, model_Bs_fixed])
+        p = (expit(args.beta * u_diff) * population.voter_distr[:, None]).sum(axis=0)
 
         for _ in tqdm(range(args.num_rounds), desc='round', leave=False):
-            mask  = np.random.rand(args.num_samples) < p
+            mask  = np.random.rand(num_samples) < p
             w_arr = np.where(mask, model_As_fixed, model_Bs_fixed)
             l_arr = np.where(mask, model_Bs_fixed, model_As_fixed)
             ij_wins = ij_from_pairwise(w_arr, l_arr, pw.M)
@@ -162,8 +155,8 @@ def main():
             ]:
                 w_dist, _ = leaderboard_dist_w(fn(ij_wins), true_ranking, population.avg_utilities, w=w)
                 dist,   _ = leaderboard_dist(fn(ij_wins), true_ranking, population.avg_utilities)
-                betas_distortions[m][float(beta)].append(w_dist)
-                supremum_distortions[m][float(beta)].append(dist)
+                sample_distortions[m][float(num_samples)].append(w_dist)
+                supremum_distortions[m][float(num_samples)].append(dist)
 
             for m, ranking in [
                 ('ml_argmax',  ml_argmax_ranking(ij_wins)),
@@ -171,20 +164,20 @@ def main():
             ]:
                 w_dist, _ = leaderboard_dist_w(ranking, true_ranking, population.avg_utilities, w=w)
                 dist,   _ = leaderboard_dist(ranking, true_ranking, population.avg_utilities)
-                betas_distortions[m][float(beta)].append(w_dist)
-                supremum_distortions[m][float(beta)].append(dist)
+                sample_distortions[m][float(num_samples)].append(w_dist)
+                supremum_distortions[m][float(num_samples)].append(dist)
 
             ranking_dist_sampled = sampled_ranking_dist(
                 candidates, ij_wins, rounds=args.ml_sampling_rounds)
             dist   = expected_leaderboard_distortion(ranking_dist_sampled, true_ranking, population.avg_utilities)
             w_dist = expected_leaderboard_distortion_w(ranking_dist_sampled, true_ranking, population.avg_utilities, w=w)
-            betas_distortions['ml_sampling'][float(beta)].append(w_dist)
-            supremum_distortions['ml_sampling'][float(beta)].append(dist)
+            sample_distortions['ml_sampling'][float(num_samples)].append(w_dist)
+            supremum_distortions['ml_sampling'][float(num_samples)].append(dist)
 
     # --- save data ---
     data = dict(
-        betas=betas,
-        betas_distortions=betas_distortions,
+        sample_numbers=sample_numbers,
+        sample_distortions=sample_distortions,
         supremum_distortions=supremum_distortions,
         config=vars(args),
     )
@@ -194,33 +187,26 @@ def main():
     print(f"Saved results to {data_path}")
 
     # --- plots ---
-    # one-shot Borda; iterative Borda; one-shot Copeland; iterative Copeland; iterative ML with argmax; iterative ML with nonzero; iterative ML
     method_style = {
         'borda':            dict(color='C0', marker='o', linestyle='-',  label='one-shot Borda'),
-        'borda_peeling':    dict(color='C1', marker='s', linestyle='--', label='iterative Borda'),
+        'borda_peeling':    dict(color='C1', marker='s', linestyle='--', label='iterative Borda peeling'),
         'copeland':         dict(color='C2', marker='^', linestyle='-',  label='one-shot Copeland'),
-        'copeland_peeling': dict(color='C3', marker='D', linestyle='--', label='iterative Copeland'),
+        'copeland_peeling': dict(color='C3', marker='D', linestyle='--', label='iterative Copeland peeling'),
         'ml_argmax':        dict(color='C4', marker='P', linestyle='-',  label='iterative ML with argmax'),
         'ml_nonzero':       dict(color='C5', marker='*', linestyle='--', label='iterative ML with nonzero'),
-        'ml_sampling':      dict(color='C6', marker='h', linestyle='-',  label='iterative ML', linewidth=2),
+        'ml_sampling':      dict(color='C6', marker='h', linestyle='-',  label='iterative ML sampling', linewidth=2),
     }
 
-    title_suffix = f'(M={pw.M}, {args.num_samples} samples/round, {args.num_rounds} rounds)'
-    small_betas = betas[betas <= 3.0]
-    large_betas = betas[betas > 3.0]
+    title_suffix = f'(beta={args.beta}, M={pw.M}, {args.num_rounds} rounds)'
 
     plots = [
-        (betas,       betas_distortions,   'Fixed-weight distortion vs beta',             'fixed_weight_distortion.png'),
-        (betas,       supremum_distortions, 'Supremum distortion vs beta',                 'supremum_distortion.png'),
-        (small_betas, betas_distortions,   'Fixed-weight distortion vs beta (small beta)', 'fixed_weight_distortion_small_beta.png'),
-        (small_betas, supremum_distortions, 'Supremum distortion vs beta (small beta)',    'supremum_distortion_small_beta.png'),
-        (large_betas, betas_distortions,   'Fixed-weight distortion vs beta (large beta)', 'fixed_weight_distortion_large_beta.png'),
-        (large_betas, supremum_distortions, 'Supremum distortion vs beta (large beta)',    'supremum_distortion_large_beta.png'),
+        (sample_distortions,  f'Fixed-weight distortion vs num samples  {title_suffix}', 'fixed_weight_distortion.png'),
+        (supremum_distortions, f'Supremum distortion vs num samples  {title_suffix}',    'supremum_distortion.png'),
     ]
 
     wandb_log = {}
-    for beta_subset, distortions, title, fname in plots:
-        fig = make_plot(beta_subset, distortions, f'{title}  {title_suffix}', method_style)
+    for distortions, title, fname in plots:
+        fig = make_plot(sample_numbers, distortions, title, method_style)
         fig.savefig(os.path.join(output_dir, fname), dpi=150)
         wandb_log[fname.replace('.png', '')] = wandb.Image(fig)
         plt.close(fig)
