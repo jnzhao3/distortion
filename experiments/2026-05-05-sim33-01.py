@@ -20,11 +20,11 @@ BETAS = [1.0, 3.0, 5.0, 10.0, 20.0, 50.0]
 NAME = '2026-05-05-sim33-01'
 COMMON = {
     "num-rounds":          10,
-    "ml-sampling-rounds":  100,
+    "ml-sampling-rounds":  1000,
     "M":                   30,
     "N":                   30,
     "seed":                1001,
-    "sample-numbers":      "30000 300000 3000000",
+    "sample-numbers":      "30000 300000 3000000 10000000",
     # "wandb-project":       "distortion-vary-samples-33",
 }
 
@@ -72,7 +72,7 @@ def main():
             j=1,
             limit=32,
             comment="sim33-vary-beta",
-            priority="lowest",
+            priority="high",
         )
         make_runs(gen)
         for i, s in enumerate(gen.generate_str()):
