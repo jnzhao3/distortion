@@ -17,6 +17,7 @@ from generate import SbatchGenerator
 BETAS = [1.0, 3.0, 5.0, 10.0, 20.0, 50.0]
 
 # ── shared constants ────────────────────────────────────────────────────────
+NAME = '2026-05-05-sim33-01'
 COMMON = {
     "num-rounds":          10,
     "ml-sampling-rounds":  100,
@@ -24,7 +25,7 @@ COMMON = {
     "N":                   30,
     "seed":                1001,
     "sample-numbers":      "30000 300000 3000000",
-    "wandb-project":       "distortion-vary-samples-33",
+    # "wandb-project":       "distortion-vary-samples-33",
 }
 
 
@@ -32,8 +33,8 @@ def make_runs(generator):
     for beta in BETAS:
         generator.add_run({
             "beta":           beta,
-            "output-dir":     f"results/sim33/beta_{beta}",
-            "wandb-run-name": f"sim33_beta_{beta}",
+            "output-dir":     f"results/{NAME}/beta_{beta}",
+            "wandb-run-name": f"{NAME}_{beta}",
         })
 
 
@@ -60,7 +61,7 @@ def main():
     if args.local:
         gen = LocalScriptGenerator(prefix=prefix, gpus=[])
         make_runs(gen)
-        fname = os.path.join(scripts_dir, "local_sim33_vary_beta.sh")
+        fname = os.path.join(scripts_dir, f"{NAME}_local.sh")
         with open(fname, "w") as f:
             f.write(gen.generate_str())
         print(f"Wrote {fname}")
@@ -75,7 +76,7 @@ def main():
         )
         make_runs(gen)
         for i, s in enumerate(gen.generate_str()):
-            fname = os.path.join(scripts_dir, f"slurm_sim33_vary_beta_part{i+1}.sh")
+            fname = os.path.join(scripts_dir, f"{NAME}_slurm.sh")
             with open(fname, "w") as f:
                 f.write(s)
             print(f"Wrote {fname}")
