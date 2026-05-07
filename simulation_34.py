@@ -1,3 +1,6 @@
+##============ FINITE SETTING, FIXED WEIGHT SETS ==========##
+
+
 import argparse
 import os
 import pickle
@@ -79,19 +82,33 @@ def parse_args():
     return p.parse_args()
 
 
-def make_plot(betas, distortions, title, method_style):
+def make_plot(betas, distortions, title, method_style, w=None, weight_base=None):
     fig, ax = plt.subplots(figsize=(10, 5))
+    all_uppers = []
     for m, kw in method_style.items():
         means = np.array([np.mean(distortions[m][float(b)]) for b in betas])
         stds  = np.array([np.std( distortions[m][float(b)]) for b in betas])
         ax.plot(betas, means, **kw)
         ax.fill_between(betas, means - stds, means + stds, alpha=0.15, color=kw['color'])
+        all_uppers.append((means + stds).max())
 
+    top = max(all_uppers) * 1.05 if all_uppers else 1.1
     ax.set_xlabel('β', fontstyle="italic")
     ax.set_ylabel('distortion')
+    ax.set_ylim(bottom=1.0, top=top)
     ax.set_title(title)
     ax.legend()
     ax.grid(True, which='both', alpha=0.3)
+
+    if w is not None:
+        inset = ax.inset_axes([0.72, 0.55, 0.25, 0.38])
+        inset.bar(np.arange(len(w)), w, color='grey', alpha=0.7, width=0.8)
+        base_str = f'{weight_base}' if weight_base is not None else ''
+        inset.set_title(f'w = 1/{base_str}^k', fontsize=7)
+        inset.set_xlabel('rank k', fontsize=6)
+        inset.tick_params(labelsize=6)
+        inset.set_xlim(-0.5, len(w) - 0.5)
+
     plt.tight_layout()
     return fig
 
@@ -211,28 +228,28 @@ def main():
     large_betas = betas[betas > 3.0]
 
     plots = [
-        (betas,       betas_distortions,   'Fixed-weight distortion vs beta',             'fixed_weight_distortion.png'),
-        (betas,       supremum_distortions, 'Supremum distortion vs beta',                 'supremum_distortion.png'),
-        (small_betas, betas_distortions,   'Fixed-weight distortion vs beta (small beta)', 'fixed_weight_distortion_small_beta.png'),
-        (small_betas, supremum_distortions, 'Supremum distortion vs beta (small beta)',    'supremum_distortion_small_beta.png'),
-        (large_betas, betas_distortions,   'Fixed-weight distortion vs beta (large beta)', 'fixed_weight_distortion_large_beta.png'),
-        (large_betas, supremum_distortions, 'Supremum distortion vs beta (large beta)',    'supremum_distortion_large_beta.png'),
+        (betas,       betas_distortions, 'Fixed-weight distortion vs beta',             'fixed_weight_distortion.png'),
+        (small_betas, betas_distortions, 'Fixed-weight distortion vs beta (small beta)', 'fixed_weight_distortion_small_beta.png'),
+        (large_betas, betas_distortions, 'Fixed-weight distortion vs beta (large beta)', 'fixed_weight_distortion_large_beta.png'),
     ]
 
     wandb_log = {}
     for beta_subset, distortions, title, fname in plots:
-        fig = make_plot(beta_subset, distortions, f'{title}  {title_suffix}', method_style)
+        if len(beta_subset) == 0:
+            continue
+        fig = make_plot(beta_subset, distortions, f'{title}  {title_suffix}', method_style,
+                        w=w, weight_base=args.weight_base)
         fig.savefig(os.path.join(output_dir, fname), dpi=150)
         wandb_log[fname.replace('.png', '')] = wandb.Image(fig)
         plt.close(fig)
 
-    # --- large-beta grids (single-run version: 1×1 grid, same code path) ---
+    # --- large-beta grid ---
     grid_specs = [
-        (supremum_distortions, 'supremum distortion', 'sup_large_grid.png'),
-        (betas_distortions,    'fixed-weight distortion', 'fw_large_grid.png'),
+        (betas_distortions, 'fixed-weight distortion', 'fw_large_grid.png'),
     ]
     for distortions, ylabel, fname in grid_specs:
         fig_grid, ax = plt.subplots(1, 1, figsize=(10, 5))
+        all_uppers = []
         for m, kw in method_style.items():
             if len(large_betas) == 0:
                 continue
@@ -240,12 +257,22 @@ def main():
             stds  = np.array([np.std( distortions[m][float(b)]) for b in large_betas])
             ax.plot(large_betas, means, **kw)
             ax.fill_between(large_betas, means - stds, means + stds, alpha=0.15, color=kw['color'])
+            all_uppers.append((means + stds).max())
+        top = max(all_uppers) * 1.05 if all_uppers else 1.1
         ax.set_xlabel('β')
         ax.set_ylabel(ylabel)
-        ax.set_ylim(bottom=1.0, top=1.02)
+        ax.set_ylim(bottom=1.0, top=top)
         ax.set_title(f'{ylabel.capitalize()} vs β (large β)  {title_suffix}')
         ax.legend(fontsize=8)
         ax.grid(True, which='both', alpha=0.3)
+
+        inset = ax.inset_axes([0.72, 0.55, 0.25, 0.38])
+        inset.bar(np.arange(len(w)), w, color='grey', alpha=0.7, width=0.8)
+        inset.set_title(f'w = 1/{args.weight_base}^k', fontsize=7)
+        inset.set_xlabel('rank k', fontsize=6)
+        inset.tick_params(labelsize=6)
+        inset.set_xlim(-0.5, len(w) - 0.5)
+
         plt.tight_layout()
         fig_grid.savefig(os.path.join(output_dir, fname), dpi=150)
         wandb_log[fname.replace('.png', '')] = wandb.Image(fig_grid)
